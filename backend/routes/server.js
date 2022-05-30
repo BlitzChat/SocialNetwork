@@ -1,5 +1,3 @@
-require('dotenv').config()
-
 const express = require("express");
 const mongoose = require("mongoose");
 const Router = require("./routes")
@@ -8,13 +6,7 @@ const app = express();
 
 app.use(express.json());
 
-mongoose.connect(`mongodb+srv://${MONGO_USERNAME}:<${MONGO_PASSWORD}>@cluster0.s49jz.mongodb.net`,
-  {
-    useNewUrlParser: true,
-    useFindAndModify: false,
-    useUnifiedTopology: true
-  }
-);
+mongoose.connect(`mongodb+srv://admin:<admin>@cluster0.s49jz.mongodb.net/?retryWrites=true&w=majority`);
 
 const db = mongoose.connection;
 db.on("error", console.error.bind(console, "connection error: "));
