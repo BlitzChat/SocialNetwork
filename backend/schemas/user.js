@@ -15,8 +15,8 @@ var postsSchema = new Schema({
   });
 
 var chatSchema = new Schema({
-userid: {type: userid},
-mensaje: { type: String },
+    userid: {type: userid},
+    mensaje: { type: String },
 });
 
 
