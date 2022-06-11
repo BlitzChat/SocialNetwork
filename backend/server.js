@@ -6,14 +6,28 @@ const postModel = require("./posts_model");
 const path = require("path");
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const verifyToken = require('./auth');
 
 const app = express();
 
 app.use(cors)
 app.use(express.static('../frontend'))
 app.use(express.json());
-app.use(express.urlencoded({extended: false}))
+app.use(express.urlencoded({extended: true}));
+
+function verifyToken(req, res, next) {
+    const token = req.header["Authorization"];
+
+    if (!token) {
+        return res.status(401).json({ msg: "No token, authorization denied" });
+        }
+    jwt.verify(token, process.env.SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).json({ msg: "Invalid token" });
+        }
+        req.user = decoded;
+        next();
+    });
+}
 
 mongoose.connect(`mongodb+srv://${process.env.MONGO_USERNAME}:${process.env.MONGO_PASSWORD}@${process.env.MONGO_DB}.mongodb.net/?retryWrites=true&w=majority`),{
   useNewUrlParser: true,
@@ -42,14 +56,14 @@ app.post("/api/blitzchat/auth/login", async (request, response) => {
             if(user.password === hashPassword){
                 const token = request.headers.authorization;
                 if(token){
-                    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                    const decoded = jwt.verify(token, process.env.SECRET);
                     if(decoded.username === user.username){
                         return response.status(400).json({ msg:"You are already logged in"});
                     }
                 } else {
-                    const token = jwt.sign({username: user.username}, process.env.SECRET, {expiresIn: "1h"});
+                    const token = jwt.sign({username: user.username, id: user._id}, process.env.SECRET, {expiresIn: "1h"});
                     user.token = token;
-                    response.header("Authorization", token);
+                    response.header("Authorization", token, "id", user._id);
                     return response.status(200).json({msg: "Login successful"});
                 }
             } else {
@@ -82,7 +96,7 @@ app.post("/api/blitzchat/auth/register", async (request, response) => {
   }
 });
 
-app.post("/api/blitzchat/add_post", verifyToken, async (request, response) => {
+app.post("/api/blitzchat/add_post",  async (request, response) => {
   var posts = new postModel({
       text : request.body.text,
       imagen : request.body.imagen,
@@ -98,7 +112,7 @@ app.post("/api/blitzchat/add_post", verifyToken, async (request, response) => {
   } 
 });
 
-app.put("/api/blitzchat/update_post:id",verifyToken ,async (request, response) => {
+app.put("/api/blitzchat/update_post:id",async (request, response) => {
   const id = request.params.id;
   const text = request.body.text;
   const imagen = request.body.imagen;
@@ -122,7 +136,27 @@ app.put("/api/blitzchat/update_post:id",verifyToken ,async (request, response) =
   }
 });
 
-app.delete("/api/blitzchat/delete_post:id",verifyToken,  async (request, response) => {
+app.put("/api/blitzchat/update/user", async (request, response) => {
+    const id = request.headers["id"];
+    const nombre = request.body.nombre;
+    const username = request.body.username;
+    const password = request.body.password;
+    const hashPassword = await bcrypt.hash(password, 10);
+    
+    const user = await userModel.findById(id);
+    if(user === null){
+        return response.status(400).json({msg: "User not found"});
+    }
+    else {
+        user.nombre = nombre;
+        user.username = username;
+        user.password = hashPassword;
+        user.save();
+        return response.status(200).json({msg: "User updated successfully"});
+    }
+});
+
+app.delete("/api/blitzchat/delete_post:id",  async (request, response) => {
   const id = request.params.id;
   if(id === ""){
       return response.status(406).json({msg: "please enter id of the post"});
@@ -134,14 +168,15 @@ app.delete("/api/blitzchat/delete_post:id",verifyToken,  async (request, respons
 });
 
 app.get('/',(request, response) =>{
-    return response.status(200).sendFile(path.resolve(__dirname,'../frontend/login.html'))
-})
+    return response.status(200).sendFile(path.resolve(__dirname,'../frontend/login.html'));
+    console.log("hola");
+});
 
 app.get("/api/blitzchat/posts",verifyToken, async (request, response) => {
   const posts = await postModel.find({});
   return response.json(posts);
 });
 
-app.listen(3000, () => {
-  console.log("Server is running at port 3000");
+app.listen(5000, () => {    
+  console.log("Server is running at port 5000");
 });
