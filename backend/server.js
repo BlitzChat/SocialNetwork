@@ -4,22 +4,24 @@ const mongoose = require("mongoose");
 const userModel = require("./user_model");
 const postModel = require("./posts_model");
 const path = require("path");
-const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const bcrypt = require("bcryptjs");
+const morgan = require("morgan");
+const cookieParser = require("cookie-parser");
+
 
 const app = express();
-
-app.use(cors)
-app.use(express.static('../frontend'))
 app.use(express.json());
-app.use(express.urlencoded({extended: true}));
+app.use(morgan ("dev"));
+app.use(express.static('../frontend'))
+app.use(cookieParser());
 
 function verifyToken(req, res, next) {
-    const token = req.header["Authorization"];
-
+    const token = req.cookies.access_token;
     if (!token) {
-        return res.status(401).json({ msg: "No token, authorization denied" });
-        }
+        return res.status(401).json({ message: 'No token, authorization denied' });
+    }
+
     jwt.verify(token, process.env.SECRET, (err, decoded) => {
         if (err) {
             return res.status(401).json({ msg: "Invalid token" });
@@ -32,7 +34,8 @@ function verifyToken(req, res, next) {
 mongoose.connect(`mongodb+srv://${process.env.MONGO_USERNAME}:${process.env.MONGO_PASSWORD}@${process.env.MONGO_DB}.mongodb.net/?retryWrites=true&w=majority`),{
   useNewUrlParser: true,
   useFindAndModify: false,
-  useUnifiedTopology: true
+  useUnifiedTopology: true,
+    autoindex: true
 };
 
 const db = mongoose.connection;
@@ -42,19 +45,18 @@ db.once("open", function () {
 });
 
 app.post("/api/blitzchat/auth/login", async (request, response) => {
-    const user = request.body.username;
+    const userr = request.body.username;
     const pass = request.body.password;
-    var hashPassword = bcrypt.hashSync(pass, 10);
 
-    if(user === "" || pass === ""){
+    if(userr === "" || pass === ""){
         response.status(406).json({msg:"Please fill in all fields"});
     }  else { 
-        const user = await userModel.findOne({username: user});
+        const user = await userModel.findOne({username: userr});
         if(user === null){
             return response.status(400).json({ msg:"User not found"});
         } else {
-            if(user.password === hashPassword){
-                const token = request.headers.authorization;
+            if(bcrypt.compareSync(pass, user.password)){
+                const token = request.cookies.access_token;
                 if(token){
                     const decoded = jwt.verify(token, process.env.SECRET);
                     if(decoded.username === user.username){
@@ -63,8 +65,9 @@ app.post("/api/blitzchat/auth/login", async (request, response) => {
                 } else {
                     const token = jwt.sign({username: user.username, id: user._id}, process.env.SECRET, {expiresIn: "1h"});
                     user.token = token;
-                    response.header("Authorization", token, "id", user._id);
-                    return response.status(200).json({msg: "Login successful"});
+                    response.cookie ("access_token", token,  {maxAge: 3600000, httpOnly: true})
+                    response.cookie ("username", user.username,  {maxAge: 3600000, httpOnly: true})
+                    return response.status(200).json({msg: "Login successful", jtw : token});
                 }
             } else {
                 return response.status(400).json({msg:"Wrong password"});
@@ -74,20 +77,25 @@ app.post("/api/blitzchat/auth/login", async (request, response) => {
 });
 
 app.post("/api/blitzchat/auth/register", async (request, response) => {
-  var user = new userModel({
-      nombre : request.body.name,
-      username : request.body.username,
-      password : request.body.password
-  });
+    const userr = request.body.username;
+    var pass = request.body.password;
+    const nombre = request.body.nombre;
 
-  var hashPassword = await bcrypt.hash(user.password, 10);
-    user.password = hashPassword;
+    console.log(userr, pass, nombre);
 
-  if(user.nombre === "" || user.username === "" || user.password === ""){
+    var hashPassword = await bcrypt.hash(pass, 10);
+    pass = hashPassword;
+
+  if(userr === "" || pass === "" || nombre === ""){
       return response.status(406).json({msg:"Please fill in all fields"});
   } else {  // Check if username already exists
-      const user = await userModel.findOne({username: user.username});
+      const user = await userModel.findOne({username: userr});
       if(user === null){
+            const user = new userModel({
+                nombre: nombre,
+                username: userr,
+                password: hashPassword
+            });
           user.save();
           return response.status(200).json({msg:"User created successfully"});
       } else {
@@ -96,8 +104,9 @@ app.post("/api/blitzchat/auth/register", async (request, response) => {
   }
 });
 
-app.post("/api/blitzchat/add_post",  async (request, response) => {
+app.post("/api/blitzchat/add_post", verifyToken, async (request, response) => {
   var posts = new postModel({
+      userId: request.cookies.username,
       text : request.body.text,
       imagen : request.body.imagen,
       audio : request.body.audio,
@@ -112,7 +121,13 @@ app.post("/api/blitzchat/add_post",  async (request, response) => {
   } 
 });
 
-app.put("/api/blitzchat/update_post:id",async (request, response) => {
+app.get("/api/blitzchat/get_post_id" , async (request, response) => {
+    const post = request.body.post;
+    const postid = await postModel.findOne({_id: post});
+    return response.status(200).json({msg: postid});
+});
+
+app.put("/api/blitzchat/update_post:id", verifyToken, async (request, response) => {
   const id = request.params.id;
   const text = request.body.text;
   const imagen = request.body.imagen;
@@ -136,27 +151,31 @@ app.put("/api/blitzchat/update_post:id",async (request, response) => {
   }
 });
 
-app.put("/api/blitzchat/update/user", async (request, response) => {
-    const id = request.headers["id"];
+app.put("/api/blitzchat/update/user",verifyToken,  async (request, response) => {
     const nombre = request.body.nombre;
-    const username = request.body.username;
-    const password = request.body.password;
+    const username = request.cookies.username;
+    var password = request.body.password;
     const hashPassword = await bcrypt.hash(password, 10);
     
-    const user = await userModel.findById(id);
+    const user = await userModel.findById(username);
     if(user === null){
         return response.status(400).json({msg: "User not found"});
     }
-    else {
-        user.nombre = nombre;
-        user.username = username;
-        user.password = hashPassword;
-        user.save();
-        return response.status(200).json({msg: "User updated successfully"});
+    else { 
+        if (username === request.cookies.username){
+            user.nombre = nombre;
+            user.password = hashPassword;
+            const hashPassword = await bcrypt.hash(password, 10);
+            user.password = hashPassword;
+            user.save();
+            return response.status(200).json({msg: "User updated successfully"});
+        }   else {
+            return response.status(400).json({msg: "You are not authorized to update this user"});
+        }
     }
 });
 
-app.delete("/api/blitzchat/delete_post:id",  async (request, response) => {
+app.delete("/api/blitzchat/delete_post:id", verifyToken, async (request, response) => {
   const id = request.params.id;
   if(id === ""){
       return response.status(406).json({msg: "please enter id of the post"});
