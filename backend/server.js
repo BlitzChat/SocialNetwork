@@ -47,7 +47,7 @@ app.post("/api/blitzchat/auth/login", async (request, response) => {
                         return response.status(400).json({ msg:"You are already logged in"});
                     }
                 } else {
-                    const token = jwt.sign({username: user.username, id: user._id}, process.env.SECRET, {expiresIn: "1h"});
+                    const token = jwt.sign({username: user.username}, process.env.SECRET, {expiresIn: "1h"});
                     user.token = token;
                     response.header("Authorization", token);
                     return response.status(200).json({msg: "Login successful"});
