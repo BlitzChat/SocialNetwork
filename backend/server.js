@@ -5,21 +5,15 @@ const userModel = require("./user_model");
 const postModel = require("./posts_model");
 const path = require("path");
 const cors = require('cors');
-const cookieSession = require('cookie-session');
 const jwt = require('jsonwebtoken');
+const verifyToken = require('./auth');
 
 const app = express();
 
 app.use(cors)
 app.use(express.static('../frontend'))
 app.use(express.json());
-app.use(express.urlencoded({extended: true}))
-app.use(cookieSession({
-    name: 'blitzchat_session',
-    secret: process.env.SECRET,
-    maxAge: 86400,
-    httpOnly: true
-}))
+app.use(express.urlencoded({extended: false}))
 
 mongoose.connect(`mongodb+srv://${process.env.MONGO_USERNAME}:${process.env.MONGO_PASSWORD}@${process.env.MONGO_DB}.mongodb.net/?retryWrites=true&w=majority`),{
   useNewUrlParser: true,
@@ -36,6 +30,7 @@ db.once("open", function () {
 app.post("/api/blitzchat/auth/login", async (request, response) => {
     const user = request.body.username;
     const pass = request.body.password;
+    var hashPassword = bcrypt.hashSync(pass, 10);
 
     if(user === "" || pass === ""){
         response.status(406).json({msg:"Please fill in all fields"});
@@ -44,12 +39,19 @@ app.post("/api/blitzchat/auth/login", async (request, response) => {
         if(user === null){
             return response.status(400).json({ msg:"User not found"});
         } else {
-            if(user.password === pass){
-                const token = jwt.sign({
-                    username: user.username,
-                    id: user._id 
-                }, process.env.SECRET, { expiresIn: '1h' });
-                return response.status(200).json({msg:"Login successful"});
+            if(user.password === hashPassword){
+                const token = request.headers.authorization;
+                if(token){
+                    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                    if(decoded.username === user.username){
+                        return response.status(400).json({ msg:"You are already logged in"});
+                    }
+                } else {
+                    const token = jwt.sign({username: user.username, id: user._id}, process.env.SECRET, {expiresIn: "1h"});
+                    user.token = token;
+                    response.header("Authorization", token);
+                    return response.status(200).json({msg: "Login successful"});
+                }
             } else {
                 return response.status(400).json({msg:"Wrong password"});
             }
@@ -64,6 +66,9 @@ app.post("/api/blitzchat/auth/register", async (request, response) => {
       password : request.body.password
   });
 
+  var hashPassword = await bcrypt.hash(user.password, 10);
+    user.password = hashPassword;
+
   if(user.nombre === "" || user.username === "" || user.password === ""){
       return response.status(406).json({msg:"Please fill in all fields"});
   } else {  // Check if username already exists
@@ -77,7 +82,7 @@ app.post("/api/blitzchat/auth/register", async (request, response) => {
   }
 });
 
-app.post("/api/blitzchat/add_post", async (request, response) => {
+app.post("/api/blitzchat/add_post", verifyToken, async (request, response) => {
   var posts = new postModel({
       text : request.body.text,
       imagen : request.body.imagen,
@@ -93,7 +98,7 @@ app.post("/api/blitzchat/add_post", async (request, response) => {
   } 
 });
 
-app.put("/api/blitzchat/update_post:id", async (request, response) => {
+app.put("/api/blitzchat/update_post:id",verifyToken ,async (request, response) => {
   const id = request.params.id;
   const text = request.body.text;
   const imagen = request.body.imagen;
@@ -117,7 +122,7 @@ app.put("/api/blitzchat/update_post:id", async (request, response) => {
   }
 });
 
-app.delete("/api/blitzchat/delete_post:id", async (request, response) => {
+app.delete("/api/blitzchat/delete_post:id",verifyToken,  async (request, response) => {
   const id = request.params.id;
   if(id === ""){
       return response.status(406).json({msg: "please enter id of the post"});
@@ -132,7 +137,7 @@ app.get('/',(request, response) =>{
     return response.status(200).sendFile(path.resolve(__dirname,'../frontend/login.html'))
 })
 
-app.get("/api/blitzchat/posts", async (request, response) => {
+app.get("/api/blitzchat/posts",verifyToken, async (request, response) => {
   const posts = await postModel.find({});
   return response.json(posts);
 });
