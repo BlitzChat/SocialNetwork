@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require("bcryptjs");
 const morgan = require("morgan");
 const cookieParser = require("cookie-parser");
+const { ALL } = require('dns');
 
 
 const app = express();
@@ -106,7 +107,7 @@ app.post("/api/blitzchat/auth/register", async (request, response) => {
 
 app.post("/api/blitzchat/add_post", verifyToken, async (request, response) => {
   var posts = new postModel({
-      userId: request.cookies.username,
+      username: request.cookies.username,
       text : request.body.text,
       imagen : request.body.imagen,
       audio : request.body.audio,
@@ -114,21 +115,63 @@ app.post("/api/blitzchat/add_post", verifyToken, async (request, response) => {
   });
 
   if(posts.text === "" ){
-      return response.status(406).json({msg: "Please fill atleasat the text field"});
+      return response.status(406).json({msg: "Please fill atleast the text field"});
   } else { 
       posts.save(); 
       return response.status(200).json({msg: "Post created successfully"});
   } 
 });
 
-app.get("/api/blitzchat/get_post_id" , async (request, response) => {
-    const post = request.body.post;
+app.get("/api/blitzchat/get_post_id" , verifyToken, async (request, response) => {
+    const post = new postModel({
+        username: request.cookies.username,
+        text : request.body.text,
+        imagen : request.body.imagen,
+        audio : request.body.audio,
+        video : request.body.video
+    });
     const postid = await postModel.findOne({_id: post});
     return response.status(200).json({msg: postid});
 });
 
+app.get("/api/blitzchat/get_posts:username", verifyToken, async (request, response) => {
+    const username = request.body.username;
+    if (username === "") {
+        return response.status(406).json({msg: "Please fill in all fields"});
+    } else {
+            try {
+                const posts = await postModel.find({username: username});
+                if (posts.length === 0) {
+                    return response.status(400).json({msg: "No posts found for this user"});
+                } else {
+                    return response.status(200).json({msg: posts});
+                }
+            }catch (error) {
+                return response.status(400).json({msg: "Error"});
+            }   
+        }
+});
+
+app.get("/api/blitzchat/get_last_ten_posts:username", verifyToken, async (request, response) => {
+    const username = request.body.username;
+    if (username === "") {
+        return response.status(406).json({msg: "Please fill in all fields"});
+    } else {
+        try {
+            const posts = await postModel.find({username: username}).sort({_id: -1}).limit(10);
+            if (posts.length === 0) {
+                return response.status(400).json({msg: "No posts found for this user"});
+            } else {
+                return response.status(200).json({posts: posts});
+            }
+        } catch (error) {
+            return response.status(400).json({msg: "Error"});
+        }
+    }
+});
+
 app.put("/api/blitzchat/update_post:id", verifyToken, async (request, response) => {
-  const id = request.params.id;
+  const id = request.body.id;
   const text = request.body.text;
   const imagen = request.body.imagen;
   const audio = request.body.audio;
@@ -165,8 +208,6 @@ app.put("/api/blitzchat/update/user",verifyToken,  async (request, response) => 
         if (username === request.cookies.username){
             user.nombre = nombre;
             user.password = hashPassword;
-            const hashPassword = await bcrypt.hash(password, 10);
-            user.password = hashPassword;
             user.save();
             return response.status(200).json({msg: "User updated successfully"});
         }   else {
@@ -176,7 +217,7 @@ app.put("/api/blitzchat/update/user",verifyToken,  async (request, response) => 
 });
 
 app.delete("/api/blitzchat/delete_post:id", verifyToken, async (request, response) => {
-  const id = request.params.id;
+  const id = request.body.id;
   if(id === ""){
       return response.status(406).json({msg: "please enter id of the post"});
   } else {
