@@ -8,14 +8,18 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require("bcryptjs");
 const morgan = require("morgan");
 const cookieParser = require("cookie-parser");
-const { ALL } = require('dns');
-
 
 const app = express();
 app.use(express.json());
 app.use(morgan ("dev"));
 app.use(express.static('../frontend'))
 app.use(cookieParser());
+
+const server = app.listen(5000, () => {    
+    console.log("Server is running at port 5000");
+});
+
+const io = require('socket.io')(server);
 
 function verifyToken(req, res, next) {
     const token = req.cookies.access_token;
@@ -31,6 +35,17 @@ function verifyToken(req, res, next) {
         next();
     });
 }
+
+io.on("connection", (socket) => {
+    console.log("a user connected");
+    socket.on("disconnect", () => {
+        console.log("user disconnected");
+    });
+
+    socket.on("chat message", (msg) => {
+        io.emit("chat message", msg);
+    });
+});
 
 mongoose.connect(`mongodb+srv://${process.env.MONGO_USERNAME}:${process.env.MONGO_PASSWORD}@${process.env.MONGO_DB}.mongodb.net/?retryWrites=true&w=majority`),{
   useNewUrlParser: true,
@@ -162,7 +177,7 @@ app.get("/api/blitzchat/get_last_ten_posts:username", verifyToken, async (reques
             if (posts.length === 0) {
                 return response.status(400).json({msg: "No posts found for this user"});
             } else {
-                return response.status(200).json({posts: posts});
+                return response.status(200).json({msg: posts});
             }
         } catch (error) {
             return response.status(400).json({msg: "Error"});
@@ -199,19 +214,27 @@ app.put("/api/blitzchat/update/user",verifyToken,  async (request, response) => 
     const username = request.cookies.username;
     var password = request.body.password;
     const hashPassword = await bcrypt.hash(password, 10);
-    
-    const user = await userModel.findById(username);
-    if(user === null){
-        return response.status(400).json({msg: "User not found"});
+
+    if (nombre === "" || password === "") {
+        return response.status(406).json({msg: "Please fill in all fields"});
     }
-    else { 
-        if (username === request.cookies.username){
-            user.nombre = nombre;
-            user.password = hashPassword;
-            user.save();
-            return response.status(200).json({msg: "User updated successfully"});
-        }   else {
-            return response.status(400).json({msg: "You are not authorized to update this user"});
+    else {
+        const user = await userModel.find({username: username});
+        if(user === null){
+            return response.status(400).json({msg: "User not found"});
+        }
+        else { 
+            if (username === request.cookies.username){
+                const newuser = new userModel({
+                    nombre: nombre,
+                    username: username,
+                    password: hashPassword
+                });
+                newuser.save();
+                return response.status(200).json({msg: "User updated successfully"});
+            }   else {
+                return response.status(400).json({msg: "You are not authorized to update this user"});
+            }
         }
     }
 });
@@ -237,6 +260,4 @@ app.get("/api/blitzchat/posts",verifyToken, async (request, response) => {
   return response.json(posts);
 });
 
-app.listen(5000, () => {    
-  console.log("Server is running at port 5000");
-});
+

@@ -316,7 +316,7 @@ ___
 
 ### PUT : /api/blitzchat/update/user (need jwt token to use this endpoint)
 
-get from coockies the username and update the user with the new information
+get from coockies the username and update the user with the new name and password
 
 **Parameters**
 |Name            | Required     | Type      |
@@ -325,6 +325,14 @@ get from coockies the username and update the user with the new information
 |`password`      |  required    | String    |
 
 **Respones**
+```
+
+{
+    "msg": "User updated successfully"
+}
+
+```
+
 ___
 
 ### DELETE : /api/blitzchat/delete_post:id (need jwt token to use this endpoint)
@@ -337,3 +345,23 @@ need id to delete post
 |`id`            |  required    | String    |
 
 **Respones**
+___
+
+# Socket.io
+
+Base url -> localhost:5000
+
+```js
+
+io.on("connection", (socket) => {
+    console.log("a user connected");
+    socket.on("disconnect", () => {
+        console.log("user disconnected");
+    });
+
+    socket.on("chat message", (msg) => {
+        io.emit("chat message", msg);
+    });
+});
+```
+___
